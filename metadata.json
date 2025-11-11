@@ -1,0 +1,5 @@
+{
+  "name": "SOSFU_TJPA_GOOGLE",
+  "description": "Uma aplicação para gerenciar o ciclo completo de solicitações de suprimento de fundos no âmbito do Tribunal de Justiça, incluindo solicitação, aprovação, prestação de contas e um dashboard analítico para gestão.",
+  "requestFramePermissions": []
+}

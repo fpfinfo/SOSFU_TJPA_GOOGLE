@@ -1,13 +1,62 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="https://base44.com/logo_v2.svg" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Base44 APP</title>
-  </head>
+    <title>Suprimento de Fundos - TJPA</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'tribunal-primary': '#1a3a6e',
+              'tribunal-secondary': '#eab308',
+              'tribunal-background': '#f1f5f9',
+              // Old Statuses (some are reused)
+              'status-pending': '#f59e0b',
+              'status-approved': '#16a34a',
+              'status-rejected': '#dc2626',
+              'status-prestado': '#0ea5e9',
+              'status-prestacao-aprovada': '#14b8a6',
+              'status-prestacao-pendencia': '#f97316',
+              // New Detailed Statuses
+              'status-rascunho': '#64748b', // slate-500
+              'status-enviada': '#3b82f6', // blue-500
+              'status-em-analise': '#4f46e5', // indigo-600
+              'status-ajustes': '#f97316', // orange-500
+              'status-aprovada-concessao': '#16a34a', // green-600
+              'status-recurso-liberado': '#06b6d4', // cyan-500
+              'status-em-execucao': '#0d9488', // teal-600
+              'status-aguardando-prestacao': '#eab308', // yellow-500
+              'status-prestacao-enviada': '#0ea5e9', // sky-500
+              'status-prestacao-devolvida': '#f59e0b', // amber-500
+              'status-prestacao-corrigida': '#9333ea', // purple-600
+              'status-prestacao-reprovada': '#d97706', // amber-600
+              'status-em-alcance': '#be123c', // rose-700
+              'status-alcance-regularizado': '#65a30d', // lime-600
+              'status-arquivado': '#475569', // slate-600
+            }
+          }
+        }
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.44.4/+esm",
+    "@google/genai": "https://cdn.jsdelivr.net/npm/@google/genai@0.15.0/+esm",
+    "react-markdown": "https://aistudiocdn.com/react-markdown@^10.1.0"
+  }
+}
+</script>
+</head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>
