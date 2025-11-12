@@ -1,54 +1,11 @@
 
-import React, { createContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { 
-    User, 
-    UserRole, 
-    FundRequest, 
-    RequestStatus, 
-    ToastMessage, 
-    ManagedItem,
-    ManagedEntityType,
-    PrestacaoContas,
-    ExpenseItem,
-    ChatMessage,
-    Conversation,
-    ValidationResult,
-    UserProfile,
+    User, UserRole, FundRequest, RequestStatus, ToastMessage, PrestacaoContas, 
+    ExpenseItem, ValidationResult, UserProfile, Message, Conversation, CatalogItem 
 } from '../types';
-import { 
-    MOCK_USERS, 
-    MOCK_REQUESTS, 
-    MOCK_EXPENSE_TYPES, 
-    MOCK_COST_CENTERS, 
-    MOCK_POLOS, 
-    MOCK_COMARCAS, 
-    MOCK_REGIOES,
-    MOCK_MESSAGES,
-    MOCK_CONVERSATIONS
-} from './mockData';
-import supabase from '../supabaseClient';
+import { MOCK_REQUESTS, MOCK_USERS, MOCK_MESSAGES, MOCK_CATALOG_ITEMS } from './mockData';
 import { simulateOcrExtraction } from '../utils/ocr';
-
-
-// Helper function for managed entities
-const createManagedEntityState = (initialItems: ManagedItem[]) => {
-    const [items, setItems] = useState<ManagedItem[]>(initialItems);
-    // In a real app, these would be async and call an API (Supabase)
-    const add = async (name: string) => { 
-        const newItem = { id: `new_${Date.now()}`, name };
-        setItems(prev => [...prev, newItem]);
-        // await supabase.from('...').insert({ name });
-    };
-    const update = async (id: string, name: string) => {
-        setItems(prev => prev.map(item => item.id === id ? { ...item, name } : item));
-        // await supabase.from('...').update({ name }).eq('id', id);
-    };
-    const deleteItem = async (id: string) => {
-        setItems(prev => prev.filter(item => item.id !== id));
-        // await supabase.from('...').delete().eq('id', id);
-    };
-    return { items, add, update, delete: deleteItem };
-};
 
 export interface Filters {
     status: RequestStatus[];
@@ -59,43 +16,49 @@ export interface Filters {
     sortDirection: 'asc' | 'desc';
 }
 
+export interface ReasonModalState {
+    isOpen: boolean;
+    title?: string;
+    label?: string;
+    onConfirm?: (reason: string) => void;
+    onClose?: () => void;
+}
+
 export interface AppContextType {
-    // Auth
     currentUser: User | null;
     login: (role: UserRole) => void;
     logout: () => void;
-    // Data
     requests: FundRequest[];
     filteredRequests: FundRequest[];
+    createRequest: (newRequestData: Omit<FundRequest, 'id' | 'requester' | 'submissionDate' | 'status' | 'history'>) => void;
+    updateRequestStatus: (id: string, status: RequestStatus, reason?: string) => void;
+    submitPrestacaoContas: (id: string, prestacaoData: Omit<PrestacaoContas, 'submittedDate'>) => void;
+    
     // Modals
     selectedRequest: FundRequest | null;
     viewDetails: (request: FundRequest) => void;
     closeDetails: () => void;
+    
     prestacaoModalRequest: FundRequest | null;
     openPrestacaoModal: (request: FundRequest) => void;
     closePrestacaoModal: () => void;
-    reasonModal: { isOpen: boolean; props: any };
-    openReasonModal: (props: any) => void;
-    closeReasonModal: () => void;
-    // Actions
-    createRequest: (newRequestData: Omit<FundRequest, 'id' | 'requester' | 'submissionDate' | 'status' | 'history'>) => void;
-    updateRequestStatus: (id: string, status: RequestStatus, reason?: string) => void;
-    submitPrestacaoContas: (requestId: string, prestacaoData: Omit<PrestacaoContas, 'submittedDate' | 'items'> & { items: Omit<ExpenseItem, 'id'>[] }) => void;
-    updateUserProfile: (newProfileData: UserProfile) => void;
+    
+    reasonModal: ReasonModalState;
+    openReasonModal: (config: Partial<ReasonModalState> & { onConfirm: (reason: string) => void, title: string, label: string }) => void;
+
     // Toast
     toast: ToastMessage | null;
     showToast: (message: string, type: 'success' | 'error') => void;
     closeToast: () => void;
+
     // Filters
     filters: Filters;
     setFilters: React.Dispatch<React.SetStateAction<Filters>>;
-    // Managed Entities
-    expenseTypes: ManagedItem[];
-    costCenters: ManagedItem[];
-    polos: ManagedItem[];
-    comarcas: ManagedItem[];
-    regioesJudiciarias: ManagedItem[];
-    managedEntities: Record<ManagedEntityType, { items: ManagedItem[]; add: (name: string) => Promise<void>; update: (id: string, name: string) => Promise<void>; delete: (id: string) => Promise<void>; }>;
+
+    // Validation
+    validationResults: Record<string, ValidationResult[]>;
+    validateDocuments: (requestId: string, items: ExpenseItem[]) => void;
+
     // Chat
     isChatOpen: boolean;
     toggleChat: () => void;
@@ -103,310 +66,306 @@ export interface AppContextType {
     conversations: Conversation[];
     activeConversationId: string | null;
     setActiveConversationId: (id: string | null) => void;
-    messages: ChatMessage[];
+    messages: Message[];
     sendMessage: (content: string) => void;
     startChat: (userName: string) => void;
-    // Validation
-    validationResults: Record<string, ValidationResult[]>;
+
+    // Catalogs & User management
+    updateUserProfile: (profile: UserProfile) => void;
+    expenseTypes: CatalogItem[];
+    costCenters: CatalogItem[];
+    polos: CatalogItem[];
+    comarcas: CatalogItem[];
+    regioesJudiciarias: CatalogItem[];
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
 
-export const AppContextProvider: React.FC<React.PropsWithChildren<{}>> = ({ children }) => {
-    // State
+export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
-    const [requests, setRequests] = useState<FundRequest[]>([]);
-    const [toast, setToast] = useState<ToastMessage | null>(null);
+    const [requests, setRequests] = useState<FundRequest[]>(MOCK_REQUESTS);
+    const [users, setUsers] = useState<User[]>(MOCK_USERS);
+    
     const [selectedRequest, setSelectedRequest] = useState<FundRequest | null>(null);
     const [prestacaoModalRequest, setPrestacaoModalRequest] = useState<FundRequest | null>(null);
-    const [reasonModal, setReasonModal] = useState({ isOpen: false, props: {} });
-    const [filters, setFilters] = useState<Filters>({ status: [], expenseType: [], startDate: '', endDate: '', sortBy: 'submissionDate', sortDirection: 'desc' });
-    const [isChatOpen, setIsChatOpen] = useState(false);
-    const [messages, setMessages] = useState<ChatMessage[]>(MOCK_MESSAGES);
-    const [conversations, setConversations] = useState<Conversation[]>(MOCK_CONVERSATIONS);
-    const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+    const [reasonModal, setReasonModal] = useState<ReasonModalState>({ isOpen: false });
+    const [toast, setToast] = useState<ToastMessage | null>(null);
     const [validationResults, setValidationResults] = useState<Record<string, ValidationResult[]>>({});
+    
+    const [isChatOpen, setIsChatOpen] = useState(false);
+    const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+    const [messages, setMessages] = useState<Message[]>(MOCK_MESSAGES);
+    
+    const [expenseTypes] = useState<CatalogItem[]>(MOCK_CATALOG_ITEMS.expenseTypes);
+    const [costCenters] = useState<CatalogItem[]>(MOCK_CATALOG_ITEMS.costCenters);
+    const [polos] = useState<CatalogItem[]>(MOCK_CATALOG_ITEMS.polos);
+    const [comarcas] = useState<CatalogItem[]>(MOCK_CATALOG_ITEMS.comarcas);
+    const [regioesJudiciarias] = useState<CatalogItem[]>(MOCK_CATALOG_ITEMS.regioesJudiciarias);
 
-    // Managed Entities Hooks
-    const expenseTypesState = createManagedEntityState(MOCK_EXPENSE_TYPES);
-    const costCentersState = createManagedEntityState(MOCK_COST_CENTERS);
-    const polosState = createManagedEntityState(MOCK_POLOS);
-    const comarcasState = createManagedEntityState(MOCK_COMARCAS);
-    const regioesState = createManagedEntityState(MOCK_REGIOES);
 
-    const managedEntities = {
-        expenseTypes: expenseTypesState,
-        costCenters: costCentersState,
-        polos: polosState,
-        comarcas: comarcasState,
-        regioesJudiciarias: regioesState,
-    };
-
-    useEffect(() => {
-        // Simulating data loading
-        if (supabase) {
-            // Fetch initial data from Supabase
-        } else {
-            // Use mock data if Supabase is not configured
-            setRequests(MOCK_REQUESTS);
-        }
-    }, []);
-
-    // Memoized filtered requests
-    const filteredRequests = useMemo(() => {
-        let filtered = currentUser?.role === UserRole.ADMIN 
-            ? requests 
-            : requests.filter(r => r.requester === currentUser?.name);
-
-        if (filters.status.length > 0) {
-            filtered = filtered.filter(r => filters.status.includes(r.status));
-        }
-        if (filters.expenseType.length > 0) {
-            filtered = filtered.filter(r => filters.expenseType.includes(r.expenseType));
-        }
-        if (filters.startDate) {
-            filtered = filtered.filter(r => new Date(r.submissionDate) >= new Date(filters.startDate));
-        }
-        if (filters.endDate) {
-            filtered = filtered.filter(r => new Date(r.submissionDate) <= new Date(filters.endDate));
-        }
-
-        return filtered.sort((a, b) => {
-            const aValue = a[filters.sortBy];
-            const bValue = b[filters.sortBy];
-            if (aValue < bValue) return filters.sortDirection === 'asc' ? -1 : 1;
-            if (aValue > bValue) return filters.sortDirection === 'asc' ? 1 : -1;
-            return 0;
-        });
-    }, [requests, filters, currentUser]);
-
-    // Functions
-    const showToast = (message: string, type: 'success' | 'error') => {
-        const id = new Date().toISOString();
-        setToast({ id, message, type });
-        setTimeout(() => setToast(prev => prev?.id === id ? null : prev), 5000);
-    };
-    const closeToast = () => setToast(null);
+    const [filters, setFilters] = useState<Filters>({
+        status: [],
+        expenseType: [],
+        startDate: '',
+        endDate: '',
+        sortBy: 'submissionDate',
+        sortDirection: 'desc',
+    });
 
     const login = (role: UserRole) => {
-        const userToLogin = MOCK_USERS.find(u => u.role === role);
-        setCurrentUser(userToLogin || null);
+        const userToLogin = users.find(u => u.role === role);
+        if (userToLogin) {
+            setCurrentUser(userToLogin);
+        }
     };
-    const logout = () => setCurrentUser(null);
-    
+
+    const logout = () => {
+        setCurrentUser(null);
+    };
+
     const viewDetails = (request: FundRequest) => setSelectedRequest(request);
     const closeDetails = () => setSelectedRequest(null);
     const openPrestacaoModal = (request: FundRequest) => setPrestacaoModalRequest(request);
     const closePrestacaoModal = () => setPrestacaoModalRequest(null);
 
-    const openReasonModal = (props: any) => setReasonModal({ isOpen: true, props });
-    const closeReasonModal = () => setReasonModal({ isOpen: false, props: {} });
+    const openReasonModal = (config: Partial<ReasonModalState> & { onConfirm: (reason: string) => void, title: string, label: string }) => {
+        setReasonModal({
+            isOpen: true,
+            title: config.title,
+            label: config.label,
+            onConfirm: config.onConfirm,
+            onClose: () => setReasonModal({ isOpen: false }),
+        });
+    };
     
+    const showToast = (message: string, type: 'success' | 'error') => {
+        const id = new Date().toISOString();
+        setToast({ id, message, type });
+        setTimeout(() => setToast(prev => prev?.id === id ? null : prev), 5000);
+    };
+
+    const closeToast = () => setToast(null);
+
     const addHistory = (request: FundRequest, status: RequestStatus, reason?: string): FundRequest => {
-        return {
-            ...request,
-            history: [...request.history, { status, date: new Date().toISOString(), user: currentUser?.name || 'Sistema', reason }]
+        const newHistoryEntry: typeof request.history[0] = {
+            date: new Date().toISOString(),
+            status,
+            user: currentUser?.name || 'Sistema',
+            reason,
         };
+        return { ...request, history: [...request.history, newHistoryEntry] };
     };
 
     const createRequest = (newRequestData: Omit<FundRequest, 'id' | 'requester' | 'submissionDate' | 'status' | 'history'>) => {
         if (!currentUser) return;
         const newRequest: FundRequest = {
-            id: `SF${String(requests.length + 1).padStart(3, '0')}`,
+            ...newRequestData,
+            id: `SF-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
             requester: currentUser.name,
             submissionDate: new Date().toISOString(),
             status: RequestStatus.ENVIADA_PARA_ANALISE,
             history: [],
-            ...newRequestData,
         };
-        newRequest.history.push({ status: newRequest.status, date: newRequest.submissionDate, user: currentUser.name });
+        newRequest.history.push({ date: newRequest.submissionDate, status: newRequest.status, user: currentUser.name });
         setRequests(prev => [newRequest, ...prev]);
         showToast('Solicitação enviada com sucesso!', 'success');
     };
 
     const updateRequestStatus = (id: string, status: RequestStatus, reason?: string) => {
-        setRequests(prev => prev.map(r => r.id === id ? addHistory({ ...r, status }, status, reason) : r));
-        showToast(`Status atualizado para ${status}`, 'success');
-    };
-    
-    const submitPrestacaoContas = (
-        requestId: string,
-        prestacaoData: Omit<PrestacaoContas, 'submittedDate' | 'items'> & { items: Omit<ExpenseItem, 'id'>[] }
-    ) => {
-        setRequests(prev => {
-            const updatedRequests = prev.map(r => {
-                if (r.id === requestId) {
-                    const newStatus = RequestStatus.PRESTACAO_ENVIADA;
-                    const newPrestacao: PrestacaoContas = {
-                        submittedDate: new Date().toISOString(),
-                        totalAmount: prestacaoData.totalAmount,
-                        notes: prestacaoData.notes,
-                        items: prestacaoData.items.map((item, index) => ({ ...item, id: `exp_${requestId}_${index}` })),
-                    };
-                    return addHistory({ ...r, status: newStatus, prestacaoContas: newPrestacao }, newStatus);
-                }
-                return r;
-            });
-
-            // Trigger validation after state update
-            const updatedRequest = updatedRequests.find(r => r.id === requestId);
-            if (updatedRequest?.prestacaoContas) {
-                triggerValidation(updatedRequest);
+        setRequests(prev => prev.map(req => {
+            if (req.id === id) {
+                const updatedReq = addHistory({ ...req, status }, status, reason);
+                showToast(`Status da solicitação #${id} atualizado para "${status}".`, 'success');
+                return updatedReq;
             }
-            return updatedRequests;
-        });
-        showToast('Prestação de contas enviada com sucesso!', 'success');
-    };
-
-    const updateUserProfile = (newProfileData: UserProfile) => {
-        if (!currentUser) return;
-        
-        const updatedUser = {
-            ...currentUser,
-            profileData: newProfileData,
-        };
-        
-        setCurrentUser(updatedUser);
-        
-        // In this mock setup, we don't persist it back to the MOCK_USERS array,
-        // so changes will be lost on logout/login. A real app would save this to a DB.
-    };
-
-    const triggerValidation = (request: FundRequest) => {
-        if (!request.prestacaoContas) return;
-        
-        const initialResults: ValidationResult[] = request.prestacaoContas.items.map(item => ({
-            itemId: item.id,
-            status: 'processing',
-            discrepancies: [],
+            return req;
         }));
-        setValidationResults(prev => ({ ...prev, [request.id]: initialResults }));
-
-        request.prestacaoContas.items.forEach(async (item) => {
-            const extractedData = await simulateOcrExtraction(item);
-            
-            const discrepancies: ('amount' | 'date')[] = [];
-            if (extractedData.amount !== undefined && extractedData.amount !== item.amount) {
-                discrepancies.push('amount');
-            }
-
-            const originalDate = new Date(item.date + 'T00:00:00Z').toLocaleDateString('pt-BR');
-            const extractedDateStr = extractedData.date
-                ? (extractedData.date.includes('/') ? extractedData.date : new Date(extractedData.date + 'T00:00:00Z').toLocaleDateString('pt-BR'))
-                : '';
-
-            if (extractedData.date !== undefined && originalDate !== extractedDateStr) {
-                discrepancies.push('date');
-            }
-
-            const finalResult: ValidationResult = {
-                itemId: item.id,
-                status: Object.keys(extractedData).length > 0 ? 'validated' : 'error',
-                extractedData,
-                discrepancies,
-            };
-
-            setValidationResults(prev => {
-                const currentRequestResults = prev[request.id] || [];
-                const updatedResults = currentRequestResults.map(r => r.itemId === item.id ? finalResult : r);
-                return { ...prev, [request.id]: updatedResults };
-            });
-        });
     };
 
-    // Chat logic
-    const toggleChat = () => setIsChatOpen(prev => !prev);
-    const unreadMessagesCount = useMemo(() => conversations.reduce((acc, c) => acc + c.unreadCount, 0), [conversations]);
+    const submitPrestacaoContas = (id: string, prestacaoData: Omit<PrestacaoContas, 'submittedDate'>) => {
+        setRequests(prev => prev.map(req => {
+            if (req.id === id) {
+                const prestacao: PrestacaoContas = {
+                    ...prestacaoData,
+                    items: prestacaoData.items.map((item, index) => ({ ...item, id: `${id}-item-${index}` })),
+                    submittedDate: new Date().toISOString()
+                };
+                
+                const newStatus = req.prestacaoContas ? RequestStatus.PRESTACAO_CORRIGIDA : RequestStatus.PRESTACAO_ENVIADA;
+
+                const updatedReq = addHistory({ ...req, status: newStatus, prestacaoContas: prestacao }, newStatus);
+                showToast(`Prestação de contas para #${id} enviada para análise.`, 'success');
+                return updatedReq;
+            }
+            return req;
+        }));
+    };
     
-    const currentMessages = useMemo(() => {
+    const filteredRequests = useMemo(() => {
+        let userRequests = currentUser?.role === UserRole.ADMIN 
+            ? requests 
+            : requests.filter(r => r.requester === currentUser?.name);
+
+        return userRequests
+            .filter(r => {
+                const statusMatch = filters.status.length === 0 || filters.status.includes(r.status);
+                const typeMatch = filters.expenseType.length === 0 || filters.expenseType.includes(r.expenseType);
+                const startDateMatch = !filters.startDate || new Date(r.submissionDate) >= new Date(filters.startDate);
+                const endDateMatch = !filters.endDate || new Date(r.submissionDate) <= new Date(filters.endDate + 'T23:59:59Z');
+                return statusMatch && typeMatch && startDateMatch && endDateMatch;
+            })
+            .sort((a, b) => {
+                const valA = a[filters.sortBy];
+                const valB = b[filters.sortBy];
+                const direction = filters.sortDirection === 'asc' ? 1 : -1;
+                
+                if (valA < valB) return -1 * direction;
+                if (valA > valB) return 1 * direction;
+                return 0;
+            });
+    }, [requests, currentUser, filters]);
+    
+    const validateDocuments = useCallback(async (requestId: string, items: ExpenseItem[]) => {
+        if (validationResults[requestId]) return; // Already validated or in process
+
+        setValidationResults(prev => ({
+            ...prev,
+            [requestId]: items.map(item => ({ itemId: item.id, status: 'processing', discrepancies: [] }))
+        }));
+
+        for (const item of items) {
+            try {
+                const extractedData = await simulateOcrExtraction(item);
+                
+                const discrepancies: ('amount' | 'date')[] = [];
+                if (extractedData.amount !== undefined && extractedData.amount !== item.amount) {
+                    discrepancies.push('amount');
+                }
+                // Date comparison logic can be complex, this is a simplified version
+                if (extractedData.date) {
+                     const extractedD = new Date(extractedData.date.includes('/') 
+                        ? extractedData.date.split('/').reverse().join('-') + 'T00:00:00Z' 
+                        : extractedData.date + 'T00:00:00Z');
+                     const itemD = new Date(item.date + 'T00:00:00Z');
+                     if (extractedD.getTime() !== itemD.getTime()) {
+                         discrepancies.push('date');
+                     }
+                }
+
+                setValidationResults(prev => ({
+                    ...prev,
+                    [requestId]: prev[requestId].map(r => r.itemId === item.id 
+                        ? { itemId: item.id, status: 'validated', extractedData, discrepancies } 
+                        : r
+                    )
+                }));
+
+            } catch (error) {
+                 setValidationResults(prev => ({
+                    ...prev,
+                    [requestId]: prev[requestId].map(r => r.itemId === item.id 
+                        ? { itemId: item.id, status: 'error', discrepancies: [] } 
+                        : r
+                    )
+                }));
+            }
+        }
+    }, [validationResults]);
+
+    const toggleChat = () => setIsChatOpen(prev => !prev);
+
+    const conversations = useMemo(() => {
+        if (!currentUser) return [];
+
+        const convMap: Record<string, Conversation> = {};
+
+        messages.forEach(msg => {
+            const otherParticipant = msg.senderName === currentUser.name 
+                ? msg.conversationId.split('_').find(p => p !== currentUser.name)!
+                : msg.senderName;
+            
+            const conversationId = [currentUser.name, otherParticipant].sort().join('_');
+
+            if (!convMap[conversationId]) {
+                convMap[conversationId] = {
+                    id: conversationId,
+                    participantName: otherParticipant,
+                    unreadCount: 0,
+                }
+            }
+            
+            convMap[conversationId].lastMessage = msg;
+            if (msg.senderName !== currentUser.name && !msg.isRead) {
+                convMap[conversationId].unreadCount++;
+            }
+        });
+        
+        return Object.values(convMap).sort((a,b) => 
+            new Date(b.lastMessage!.timestamp).getTime() - new Date(a.lastMessage!.timestamp).getTime()
+        );
+
+    }, [messages, currentUser]);
+
+    const unreadMessagesCount = useMemo(() => conversations.reduce((sum, conv) => sum + conv.unreadCount, 0), [conversations]);
+
+    const activeMessages = useMemo(() => {
         return messages.filter(m => m.conversationId === activeConversationId);
     }, [messages, activeConversationId]);
     
     const sendMessage = (content: string) => {
         if (!content.trim() || !currentUser || !activeConversationId) return;
 
-        const newMessage: ChatMessage = {
-            id: `msg_${Date.now()}`,
+        const newMessage: Message = {
+            id: `msg-${Date.now()}`,
             conversationId: activeConversationId,
             senderName: currentUser.name,
-            content: content.trim(),
-            timestamp: Date.now(),
-            isRead: true,
+            content,
+            timestamp: new Date().toISOString(),
+            isRead: false
         };
         setMessages(prev => [...prev, newMessage]);
-        // Simulate bot reply for demo
-        setTimeout(() => {
-            const otherParticipant = activeConversationId.split('_').find(p => p !== currentUser.name);
-            const reply: ChatMessage = {
-                id: `msg_${Date.now()+1}`,
-                conversationId: activeConversationId,
-                senderName: otherParticipant!,
-                content: "Recebido. Irei verificar e retorno em breve.",
-                timestamp: Date.now() + 1,
-                isRead: false,
-            };
-            setMessages(prev => [...prev, reply]);
-             setConversations(prev => prev.map(c => c.id === activeConversationId ? {...c, lastMessage: reply, unreadCount: c.unreadCount + (isChatOpen ? 0 : 1)} : c));
-        }, 1500);
     };
 
-     const startChat = (userName: string) => {
+    const startChat = (userName: string) => {
         if (!currentUser) return;
-        const convId = [userName, currentUser.name].sort().join('_');
-        const existingConv = conversations.find(c => c.id === convId);
-        if (!existingConv) {
-            const newConv: Conversation = {
-                id: convId,
-                participantName: userName,
-                unreadCount: 0,
-            };
-            setConversations(prev => [newConv, ...prev]);
-        }
-        setActiveConversationId(convId);
+        const conversationId = [currentUser.name, userName].sort().join('_');
+        setActiveConversationId(conversationId);
         setIsChatOpen(true);
     };
-
-    const value: AppContextType = {
-        currentUser,
-        login,
-        logout,
-        requests,
-        filteredRequests,
-        selectedRequest,
-        viewDetails,
-        closeDetails,
-        prestacaoModalRequest,
-        openPrestacaoModal,
-        closePrestacaoModal,
-        reasonModal,
-        openReasonModal,
-        closeReasonModal,
-        createRequest,
-        updateRequestStatus,
-        submitPrestacaoContas,
-        updateUserProfile,
-        toast,
-        showToast,
-        closeToast,
-        filters,
-        setFilters,
-        expenseTypes: expenseTypesState.items,
-        costCenters: costCentersState.items,
-        polos: polosState.items,
-        comarcas: comarcasState.items,
-        regioesJudiciarias: regioesState.items,
-        managedEntities,
-        isChatOpen,
-        toggleChat,
-        unreadMessagesCount,
-        conversations,
-        activeConversationId,
-        setActiveConversationId,
-        messages: currentMessages,
-        sendMessage,
-        startChat,
-        validationResults,
+    
+    const updateUserProfile = (profile: UserProfile) => {
+        if (!currentUser) return;
+        const updatedUser = { ...currentUser, profileData: profile };
+        setCurrentUser(updatedUser);
+        setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
     };
+    
+    useEffect(() => {
+        if(isChatOpen && activeConversationId) {
+            // Mark messages as read
+            setMessages(prev => prev.map(m => (
+                m.conversationId === activeConversationId && !m.isRead && m.senderName !== currentUser?.name
+                ? { ...m, isRead: true }
+                : m
+            )));
+        }
+    }, [isChatOpen, activeConversationId, currentUser]);
 
-    return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+
+    return (
+        <AppContext.Provider value={{ 
+            currentUser, login, logout, requests, filteredRequests, createRequest, updateRequestStatus, submitPrestacaoContas,
+            selectedRequest, viewDetails, closeDetails,
+            prestacaoModalRequest, openPrestacaoModal, closePrestacaoModal,
+            reasonModal, openReasonModal,
+            toast, showToast, closeToast,
+            filters, setFilters,
+            validationResults, validateDocuments,
+            isChatOpen, toggleChat, unreadMessagesCount, conversations, activeConversationId, setActiveConversationId, messages: activeMessages, sendMessage, startChat,
+            updateUserProfile,
+            expenseTypes, costCenters, polos, comarcas, regioesJudiciarias
+        }}>
+            {children}
+        </AppContext.Provider>
+    );
 };

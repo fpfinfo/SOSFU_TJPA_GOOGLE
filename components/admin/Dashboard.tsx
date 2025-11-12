@@ -23,15 +23,14 @@ const Dashboard: React.FC = () => {
     const prestacaoCount = requests.filter(r => r.status === RequestStatus.PRESTACAO_ENVIADA || r.status === RequestStatus.PRESTACAO_CORRIGIDA).length;
     const totalCount = requests.length;
 
-    const expenseDistribution = requests.reduce((acc: Record<string, number>, req) => {
+    const expenseDistribution = requests.reduce((acc, req) => {
         acc[req.expenseType] = (acc[req.expenseType] || 0) + req.amount;
         return acc;
-// Fix: Explicitly type initial value to avoid type inference issues.
     }, {} as Record<string, number>);
 
-    const maxExpense = Math.max(...Object.values(expenseDistribution), 1);
+    const maxExpense = Math.max(...(Object.values(expenseDistribution) as number[]), 1);
 
-    const statusDistribution = requests.reduce((acc: Record<RequestStatus, number>, req) => {
+    const statusDistribution = requests.reduce((acc, req) => {
         acc[req.status] = (acc[req.status] || 0) + 1;
         return acc;
     }, {} as Record<RequestStatus, number>);
